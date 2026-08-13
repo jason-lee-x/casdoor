@@ -303,6 +303,13 @@ func RunSyncer(syncer *Syncer) error {
 	if err != nil {
 		return err
 	}
+	if syncer.Type == "WeCom" {
+		// 用户的 Groups 引用部门 ID，必须先落库部门树再同步用户。
+		err = syncer.syncGroups()
+		if err != nil {
+			return err
+		}
+	}
 
 	return syncer.syncUsers()
 }

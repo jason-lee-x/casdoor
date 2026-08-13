@@ -26,6 +26,8 @@ func (syncer *Syncer) getOriginalGroups() ([]*OriginalGroup, error) {
 }
 
 func (syncer *Syncer) createGroupFromOriginalGroup(originalGroup *OriginalGroup) *Group {
+	parentId := originalGroup.ParentId
+
 	group := &Group{
 		Owner:       syncer.Organization,
 		Name:        originalGroup.Name,
@@ -34,8 +36,9 @@ func (syncer *Syncer) createGroupFromOriginalGroup(originalGroup *OriginalGroup)
 		DisplayName: originalGroup.DisplayName,
 		Type:        originalGroup.Type,
 		Manager:     originalGroup.Manager,
+		ParentId:    parentId,
 		IsEnabled:   true,
-		IsTopGroup:  true,
+		IsTopGroup:  parentId == "" || parentId == syncer.Organization,
 	}
 
 	if originalGroup.Email != "" {
@@ -89,9 +92,17 @@ func (syncer *Syncer) syncGroups() error {
 			// Group already exists, could update it here if needed
 			existingGroup := myGroups[oGroup.Name]
 
-			// Update group display name and other fields if they've changed
-			if existingGroup.DisplayName != oGroup.DisplayName {
+			parentId := oGroup.ParentId
+			if parentId == "" {
+				parentId = existingGroup.ParentId
+			}
+
+			// 部门移动时必须同步父级，否则 Casdoor 中的组织树会继续显示旧路径。
+			if existingGroup.DisplayName != oGroup.DisplayName || existingGroup.ParentId != parentId || existingGroup.Type != oGroup.Type {
 				existingGroup.DisplayName = oGroup.DisplayName
+				existingGroup.ParentId = parentId
+				existingGroup.IsTopGroup = parentId == "" || parentId == syncer.Organization
+				existingGroup.Type = oGroup.Type
 				existingGroup.UpdatedTime = util.GetCurrentTime()
 				_, err = UpdateGroup(existingGroup.GetId(), existingGroup, true, "")
 				if err != nil {

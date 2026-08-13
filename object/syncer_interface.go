@@ -21,6 +21,7 @@ type OriginalGroup struct {
 	DisplayName string
 	Description string
 	Type        string
+	ParentId    string
 	Manager     string
 	Email       string
 }

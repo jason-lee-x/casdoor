@@ -55,23 +55,38 @@ func addSyncerJob(syncer *Syncer) error {
 		return err
 	}
 
-	err = syncer.syncUsers()
-	if err != nil {
-		return err
-	}
-
-	// Sync groups as well
-	err = syncer.syncGroups()
-	if err != nil {
-		// Log error but don't fail the entire sync
-		fmt.Printf("Warning: syncGroups() error: %s\n", err.Error())
+	if syncer.Type == "WeCom" {
+		// WeCom 用户会引用部门组，因此首次和后续同步都必须先更新部门树。
+		err = syncer.syncGroups()
+		if err != nil {
+			return err
+		}
+		err = syncer.syncUsers()
+		if err != nil {
+			return err
+		}
+	} else {
+		err = syncer.syncUsers()
+		if err != nil {
+			return err
+		}
+		err = syncer.syncGroups()
+		if err != nil {
+			// Log error but don't fail the entire sync
+			fmt.Printf("Warning: syncGroups() error: %s\n", err.Error())
+		}
 	}
 
 	schedule := fmt.Sprintf("@every %ds", syncer.SyncInterval)
 	cron := getCronMap(syncer.Name)
 	_, err = cron.AddFunc(schedule, func() {
-		syncer.syncUsersNoError()
-		syncer.syncGroupsNoError()
+		if syncer.Type == "WeCom" {
+			syncer.syncGroupsNoError()
+			syncer.syncUsersNoError()
+		} else {
+			syncer.syncUsersNoError()
+			syncer.syncGroupsNoError()
+		}
 	})
 	if err != nil {
 		return err

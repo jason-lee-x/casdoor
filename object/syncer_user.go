@@ -15,6 +15,7 @@
 package object
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -61,6 +62,19 @@ func (syncer *Syncer) updateUserForOriginalFields(user *User, key string) (bool,
 		return false, nil
 	}
 
+	if syncer.Type == "WeCom" {
+		// 企微会在应用无敏感字段权限时省略这些值，不能因此清空 Casdoor 中已有的数据。
+		if user.Email == "" {
+			user.Email = oldUser.Email
+		}
+		if user.Phone == "" {
+			user.Phone = oldUser.Phone
+		}
+		if user.Avatar == "" {
+			user.Avatar = oldUser.Avatar
+		}
+	}
+
 	if user.Avatar != oldUser.Avatar && user.Avatar != "" {
 		user.PermanentAvatar, err = getPermanentAvatarUrl(user.Owner, user.Name, user.Avatar, true)
 		if err != nil {
@@ -70,6 +84,9 @@ func (syncer *Syncer) updateUserForOriginalFields(user *User, key string) (bool,
 
 	columns := syncer.getCasdoorColumns()
 	columns = append(columns, "affiliation", "hash", "pre_hash")
+	if syncer.Type == "WeCom" {
+		columns = append(columns, "groups")
+	}
 
 	// Skip password-related columns when the incoming user has no password data.
 	// API-based syncers (DingTalk, WeCom, Lark, etc.) do not provide passwords,
@@ -95,9 +112,15 @@ func (syncer *Syncer) updateUserForOriginalFields(user *User, key string) (bool,
 		columns = append(columns, "lark")
 	}
 
+	if syncer.Type == "WeCom" {
+		_, err = userEnforcer.UpdateGroupsForUser(user.GetId(), user.Groups)
+		if err != nil {
+			return false, fmt.Errorf("failed to update WeCom groups for user %s: %w", user.GetId(), err)
+		}
+	}
 	affected, err := ormer.Engine.Where(key+" = ? and owner = ?", syncer.getUserValue(&oldUser, key), oldUser.Owner).Cols(columns...).Update(user)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to update WeCom fields for user %s: %w", user.GetId(), err)
 	}
 
 	return affected != 0, nil
@@ -110,6 +133,10 @@ func (syncer *Syncer) calculateHash(user *OriginalUser) string {
 		if tableColumn.IsHashed {
 			values = append(values, m[tableColumn.Name])
 		}
+	}
+	if syncer.Type == "WeCom" {
+		// 部门和别名不一定配置为 hashed 字段，但它们变化时仍需触发用户更新。
+		values = append(values, user.DisplayName, user.RealName, user.Email, user.Phone, user.Avatar, user.Affiliation, strings.Join(user.Groups, ","))
 	}
 
 	s := strings.Join(values, "|")
